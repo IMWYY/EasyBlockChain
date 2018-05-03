@@ -14,7 +14,6 @@ public class BitChain {
     public static float minimumTransaction = 0.1f;
     public static List<Block> blockChain = new ArrayList<>();
     public static HashMap<String, TransactionToMe> UTXOs = new HashMap<>(); //所有用户的没有被花掉的Transaction列表
-    public static Transaction genesisTransaction;
 
 
     /**
