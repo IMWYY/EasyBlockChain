@@ -3,17 +3,16 @@ package xyz.imwyy;
 import java.util.ArrayList;
 
 /**
- * 定义区块链的类
  * create by stephen on 2018/5/2
  */
 public class Block {
 
-    private String hash;            //当前block的hash值
-    private String previousHash;    //前一block的hash值
-    private long timeStamp;         //当前block的时间戳
-    private long nonce;             //记录挖矿时 Hash重算的次数
-    private ArrayList<Transaction> transactions = new ArrayList<>();    //当前block的交易数据
-    private String merkleRoot;      //Merkle Tree的根节点
+    private String hash;
+    private String previousHash;
+    private long timeStamp;
+    private long nonce;             //used in mining
+    private ArrayList<Transaction> transactions = new ArrayList<>();    // transactions that this block hold
+    private String merkleRoot;
 
 
     public Block(String previousHash) {
@@ -22,9 +21,6 @@ public class Block {
         this.hash = calculateHash();
     }
 
-    /**
-     * 利用previousHash、timeStamp、data和nonce计算hash值
-     */
     public String calculateHash() {
         return Util.sha256(
                 previousHash +
@@ -34,14 +30,10 @@ public class Block {
         );
     }
 
-    /**
-     * 向这个区块添加交易记录
-     * @param transaction 交易记录
-     */
     public boolean addTransaction(Transaction transaction) {
         //process transaction and check if valid, unless block is genesis block then ignore.
         if (transaction == null) return false;
-        if ((previousHash != "0")) {
+        if (!"0".equals(previousHash)) {
             if ((!transaction.processTransaction())) {
                 System.out.println("Error! Transaction failed to process. Discarded.");
                 return false;
@@ -52,16 +44,12 @@ public class Block {
         return true;
     }
 
-    /**
-     * 挖矿 难度由MainChain.DIFFICULTY决定
-     */
     public void mineBlock(int difficulty) {
         merkleRoot = Util.getMerkleRoot(transactions);
-        // target是一个DIFFICULTY长度的0数组
+        // target is a array starting with n zeros
         String target = new String(new char[difficulty]).replace('\0', '0');
-
         while (!hash.substring(0, difficulty).equals(target)) {
-            nonce++;        //记录计算hash的次数
+            nonce++;
             hash = calculateHash();
         }
         System.out.println("Block Mined: " + hash + " Calculate times: " + nonce);
@@ -78,6 +66,4 @@ public class Block {
     public ArrayList<Transaction> getTransactions() {
         return transactions;
     }
-
-
 }

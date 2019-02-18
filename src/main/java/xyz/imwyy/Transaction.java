@@ -3,155 +3,153 @@ package xyz.imwyy;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.ArrayList;
+import java.util.Arrays;
 
 /**
- * 交易信息的实体类
+ * For each Transaction,there will be either a single input from a larger previous transaction or
+ * multiple inputs combining smaller amounts, and at most two outputs: one for the payment,
+ * and one returning the change, if any, back to the sender
  * create by stephen on 2018/5/3
  */
 public class Transaction {
-    public String transactionId;    // 交易的hash值
-    public PublicKey sender;        // 发送方地址即发送人公钥
-    public PublicKey reciepient;    // 接受方地址即接受人公钥
-    public float value;             // 交易的金额
-    public byte[] signature;        // 签名用来保证只有货币的拥有者才可以用来发送自己的货币，阻止其他人试图篡改提交的交易。
 
-    public ArrayList<TransactionToOthers> toOthers = new ArrayList<>();
-    public ArrayList<TransactionToMe> toMes = new ArrayList<>();
+    private PublicKey recipient;
+    private byte[] signature;       // sender uses his private key to generate this signature.
+    // others can verify the transaction using sender's public key
 
-    private static int sequence = 0; // 一个计数器 记录交易生成的次数
+    private String transactionId;    // hash of the transaction
+    private float value;
 
-    public Transaction(PublicKey from, PublicKey to, float value, ArrayList<TransactionToOthers> ToOthers) {
-        this.sender = from;
-        this.reciepient = to;
-        this.value = value;
-        this.toOthers = ToOthers;
-    }
+    private PublicKey sender;
 
+    private ArrayList<TransactionInput> txInput;
+    private ArrayList<TransactionOutput> txOutput;
+    private static int sequence = 0;
 
     /**
-     * 处理交易 如果新的交易可以被创建返回true
-     *
-     * @return 如果新的交易可以被创建返回true
+     * Each owner transfers the coin to the next by digitally signing a hash of the previous transaction
+     * and the public key of the next owner and adding these to the end of the coin.
+     * @param from    sender's public key
+     * @param to      recipient's public key
+     * @param value   money to transfer
+     * @param txInput input transactions
+     */
+    public Transaction(PublicKey from, PublicKey to, float value, ArrayList<TransactionInput> txInput) {
+        this.sender = from;
+        this.recipient = to;
+        this.value = value;
+        this.txInput = txInput;
+        this.txOutput = new ArrayList<>();
+    }
+
+    /**
+     * For each transaction, it generates at most two outputs:
+     * one for the payment,
+     * and one returning the change, if any, back to the sender
      */
     public boolean processTransaction() {
-        if (!verifiySignature()) {
+        if (!verifySignature()) {
             System.out.println("Error! Transaction Signature failed to verify");
             return false;
         }
 
-        // 将所有的TransactionToOthers利用BitCoin.UTXOs和transactionToMe关联
-        for (TransactionToOthers i : toOthers) {
-            i.UTXO = BitChain.UTXOs.get(i.transactionToMeId);
+        for (TransactionInput i : txInput) {
+            i.setMoneyToSpend(BlockChain.ALL_UTXOs.get(i.getTransactionId()));
         }
 
-        //检查交易是否合法 交易额不得小于minimumTransaction
-        if (getTransToOthersValue() < BitChain.minimumTransaction) {
-            System.out.println("Error! Transaction Inputs to small: " + getTransToOthersValue());
+        if (getTransInputTotalMoney() < BlockChain.MIN_TRANSACTION_MONEY) {
+            System.out.println("Error! Transaction Inputs to small: " + getTransInputTotalMoney());
             return false;
         }
 
-        //生成TransactionOutput
-        float leftOver = getTransToOthersValue() - value; //扣除交易value后的余额
-        transactionId = calulateHash();
-        toMes.add(new TransactionToMe(this.reciepient, value, transactionId)); //接受者增加value
-        toMes.add(new TransactionToMe(this.sender, leftOver, transactionId));  //发送者减少value
-
-        //把所有的output加入UTXOs
-        for (TransactionToMe o : toMes) {
-            BitChain.UTXOs.put(o.id, o);
+        //generate TransactionOutput
+        float leftOver = getTransInputTotalMoney() - value;
+        this.transactionId = calculateHash();
+        this.txOutput.add(new TransactionOutput(this.recipient, value, transactionId));
+        if (leftOver > 0) {
+            this.txOutput.add(new TransactionOutput(this.sender, leftOver, transactionId));
         }
 
-        //将已经花费的transaction从UTXO中移除
-        for (TransactionToOthers i : toOthers) {
-            if (i.UTXO == null) continue;
-            BitChain.UTXOs.remove(i.UTXO.id);
+        // add new output to global UTXO
+        for (TransactionOutput o : this.txOutput) {
+            BlockChain.ALL_UTXOs.put(o.getTransactionId(), o);
         }
 
+        // remove spent money from global UTXO
+        for (TransactionInput i : txInput) {
+            if (i.getMoneyToSpend() == null) continue;
+            BlockChain.ALL_UTXOs.remove(i.getMoneyToSpend().getTransactionId());
+        }
         return true;
     }
 
-    /**
-     * 获得转给别人的coin总额
-     *
-     * @return 转给别人的coin总额
-     */
-    public float getTransToOthersValue() {
+    public float getTransInputTotalMoney() {
         float total = 0;
-        for (TransactionToOthers i : toOthers) {
-            if (i.UTXO == null) continue;
-            total += i.UTXO.value;
+        for (TransactionInput i : txInput) {
+            if (i.getMoneyToSpend() == null) continue;
+            total += i.getMoneyToSpend().getValue();
         }
         return total;
     }
 
-    /**
-     * 获得所有TransactionOutput的coin和
-     *
-     * @return 所有TransactionOutput的coin和
-     */
-    public float getTransToMeValue() {
+    public float getTransOutputTotalMoney() {
         float total = 0;
-        for (TransactionToMe o : toMes) {
-            total += o.value;
+        for (TransactionOutput i : txOutput) {
+            total += i.getValue();
         }
         return total;
     }
 
-    /**
-     * 计算Transaction的hash 用作Transaction的id
-     *
-     * @return hash值
-     */
-    private String calulateHash() {
-        sequence++; // 加入sequence因子 减少hash碰撞
+    private String calculateHash() {
         return Util.sha256(
-                Util.getStringFromKey(sender) +
-                        Util.getStringFromKey(reciepient) +
-                        Float.toString(value) + sequence
+                Util.getStringFromKey(sender)
+                        + Util.getStringFromKey(recipient)
+                        + Float.toString(value)
+                        + Arrays.toString(signature) +
+                        + sequence++
         );
     }
 
-
     /**
-     * 将交易中所有不想被篡改的信息加密为签名
-     *
-     * @param privateKey 私钥
+     * sender use this method to generate signature
      */
     public void generateSignature(PrivateKey privateKey) {
-        String data = Util.getStringFromKey(sender) + Util.getStringFromKey(reciepient) + Float.toString(value);
-        signature = Util.ECDSASignature(privateKey, data);
+        String data = Util.getStringFromKey(sender)
+                + Util.getStringFromKey(recipient)
+                + Float.toString(value);
+        this.signature = Util.ECDSASignature(privateKey, data);
     }
 
     /**
-     * 验证信息是否被篡改（是否有效）
-     * 签名将由矿工验证，只有签名验证成功后交易才能被添加到区块中去。
+     * A payee can use sender's public key verify the signatures to verify the chain of ownership
      */
-    public boolean verifiySignature() {
-        String data = Util.getStringFromKey(sender) + Util.getStringFromKey(reciepient) + Float.toString(value);
+    public boolean verifySignature() {
+        String data = Util.getStringFromKey(sender) + Util.getStringFromKey(recipient) + Float.toString(value);
         return Util.verifyECDSASignature(sender, data, signature);
     }
 
-    public ArrayList<TransactionToOthers> getToOthers() {
-        return toOthers;
+
+    public ArrayList<TransactionOutput> getTxOutput() {
+        return txOutput;
     }
 
-    public ArrayList<TransactionToMe> getToMes() {
-        return toMes;
+    public float getValue() {
+        return value;
     }
 
-    public PublicKey getReciepient() {
-        return reciepient;
+    public PublicKey getRecipient() {
+        return recipient;
     }
 
     public String getTransactionId() {
         return transactionId;
     }
 
-    public PublicKey getSender() {
-        return sender;
+    public ArrayList<TransactionInput> getTxInput() {
+        return txInput;
     }
 
-    public float getValue() {
-        return value;
+    public PublicKey getSender() {
+        return sender;
     }
 }

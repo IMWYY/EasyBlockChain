@@ -5,17 +5,10 @@ import java.util.ArrayList;
 import java.util.Base64;
 
 /**
- * hash计算、加密等的工具类
  * create by stephen on 2018/5/2
  */
 public class Util {
 
-    /**
-     * 以字符串的形式计算Sha256的值
-     *
-     * @param input 输入
-     * @return Sha256的值
-     */
     public static String sha256(String input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -34,15 +27,16 @@ public class Util {
     }
 
     /**
-     * 获取Merkle Tree的根节点
-     * @param transactions 交易列表
-     * @return Merkle Tree的根节点
+     * Once the latest transaction in a coin is buried under enough blocks,
+     * the spent transactions before it can be discarded to save disk space.
+     * To facilitate this without breaking the block's hash,
+     * transactions are hashed in a Merkle Tree [7][2][5], with only the root included in the block's hash
      */
     public static String getMerkleRoot(ArrayList<Transaction> transactions) {
         int count = transactions.size();
         ArrayList<String> previousTreeLayer = new ArrayList<>();
         for (Transaction transaction : transactions) {
-            previousTreeLayer.add(transaction.transactionId);
+            previousTreeLayer.add(transaction.getTransactionId());
         }
         ArrayList<String> treeLayer = previousTreeLayer;
         while (count > 1) {
@@ -57,11 +51,7 @@ public class Util {
     }
 
     /**
-     * 根据私钥和需要加密的数据获取签名信息
-     *
-     * @param privateKey 私钥
-     * @param input      需要加密的数据
-     * @return 签名信息
+     * use ECDSA algorithm to sign the input
      */
     public static byte[] ECDSASignature(PrivateKey privateKey, String input) {
         Signature dsa;
@@ -78,14 +68,6 @@ public class Util {
         return output;
     }
 
-    /**
-     * 根据公钥判断当前签名是否有效果
-     *
-     * @param publicKey 公钥
-     * @param data      加密的数据
-     * @param signature 签名信息
-     * @return true有效 false无效
-     */
     public static boolean verifyECDSASignature(PublicKey publicKey, String data, byte[] signature) {
         try {
             Signature instance = Signature.getInstance("ECDSA", "BC");
@@ -97,12 +79,6 @@ public class Util {
         }
     }
 
-    /**
-     * 获取任何key的编码字符串
-     *
-     * @param key key
-     * @return 编码字符串
-     */
     public static String getStringFromKey(Key key) {
         return Base64.getEncoder().encodeToString(key.getEncoded());
     }
